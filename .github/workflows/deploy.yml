@@ -1,0 +1,58 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Deploy to EC2
+        if: success()
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu
+            if [ -d "Ecommerce-order-processor" ]; then
+              cd Ecommerce-order-processor
+              git pull
+            else
+              git clone https://github.com/harsh8501/Ecommerce-order-processor.git
+              cd Ecommerce-order-processor
+            fi
+
+            # Start or restart all services using PM2
+            for service in order-service inventory-service notification-service; do
+              cd /home/ubuntu/Ecommerce-order-processor/$service
+              npm install
+
+              ENTRY_FILE="index.js"  # change this if your service uses another file
+              APP_NAME="$service"
+
+              if pm2 describe "$APP_NAME" > /dev/null; then
+                pm2 restart "$APP_NAME"
+              else
+                pm2 start "$ENTRY_FILE" --name "$APP_NAME"
+              fi
+            done
+
+            pm2 save
+
+            echo "Deployment completed successfully."
